@@ -12,8 +12,12 @@
 #include <QTextStream>
 #include <QDir>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QFile>
 #include <QCoreApplication>
+#include <QDialog>
+#include <QTextEdit>
+#include <QPushButton>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -106,8 +110,24 @@ MainWindow::MainWindow(QWidget *parent)
     connect(cleanDiskBtn, &QPushButton::clicked, this, &MainWindow::cleanDiskSpace);
     buttonLayout2->addWidget(cleanDiskBtn);
 
+    QHBoxLayout *buttonLayout3 = new QHBoxLayout();
+    buttonLayout3->setSpacing(10);
+
+    QPushButton *updateBtn = new QPushButton("[Update]", this);
+    updateBtn->setMinimumSize(150, 60);
+    updateBtn->setStyleSheet("QPushButton { background-color: #2196F3; color: white; padding: 8px; border: none; border-radius: 8px; font-size: 28px; font-weight: bold; }");
+    connect(updateBtn, &QPushButton::clicked, this, &MainWindow::updateCode);
+    buttonLayout3->addWidget(updateBtn);
+
+    QPushButton *viewLogsBtn = new QPushButton("[View Logs]", this);
+    viewLogsBtn->setMinimumSize(150, 60);
+    viewLogsBtn->setStyleSheet("QPushButton { background-color: #9C27B0; color: white; padding: 8px; border: none; border-radius: 8px; font-size: 28px; font-weight: bold; }");
+    connect(viewLogsBtn, &QPushButton::clicked, this, &MainWindow::viewLogs);
+    buttonLayout3->addWidget(viewLogsBtn);
+
     mainLayout->addLayout(buttonLayout1);
     mainLayout->addLayout(buttonLayout2);
+    mainLayout->addLayout(buttonLayout3);
     mainLayout->addStretch();
 
     QHBoxLayout *sysInfoLayout = new QHBoxLayout();
@@ -435,4 +455,159 @@ void MainWindow::cleanDiskSpace()
     updateSystemInfo();
     
     QMessageBox::information(this, "Disk Cleanup", "Disk cleanup completed!\n\nDisk usage has been updated.");
+}
+
+void MainWindow::updateCode()
+{
+    writeLog("Code update requested");
+    
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Confirm Update");
+    msgBox.setText("Update code from GitHub?\nRepo: https://github.com/fish-thomas/A133-BASE.git");
+    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    msgBox.setDefaultButton(QMessageBox::No);
+    
+    // 设置对话框宽度以适应屏幕
+    msgBox.setMinimumWidth(700);
+    msgBox.setMaximumSize(780, 400);
+
+    if (msgBox.exec() != QMessageBox::Yes) {
+        writeLog("Code update cancelled");
+        return;
+    }
+
+    writeLog("Starting code update...");
+    
+    QString updateDir = QDir::homePath() + "/A133_BASE_update";
+    QString repoUrl = "https://github.com/fish-thomas/A133-BASE.git";
+    
+    QProcess process;
+    
+    // 检查 git 是否可用
+    process.start("git", QStringList() << "--version");
+    if (!process.waitForFinished(5000)) {
+        writeLog("Error: git not found or timeout");
+        QMessageBox::warning(this, "Update Error", "git command not found!");
+        return;
+    }
+    
+    // 取消 git 代理设置
+    writeLog("Clearing git proxy settings");
+    process.start("git", QStringList() << "config" << "--global" << "http.proxy");
+    process.waitForFinished(3000);
+    process.start("git", QStringList() << "config" << "--global" << "https.proxy");
+    process.waitForFinished(3000);
+    process.start("git", QStringList() << "config" << "--global" << "--unset" << "http.proxy");
+    process.waitForFinished(3000);
+    process.start("git", QStringList() << "config" << "--global" << "--unset" << "https.proxy");
+    process.waitForFinished(3000);
+    process.start("git", QStringList() << "config" << "--unset" << "http.proxy");
+    process.waitForFinished(3000);
+    process.start("git", QStringList() << "config" << "--unset" << "https.proxy");
+    process.waitForFinished(3000);
+    
+    // 清理旧的更新目录（如果存在）
+    QDir dir(updateDir);
+    if (dir.exists()) {
+        writeLog("Removing old update directory");
+        dir.removeRecursively();
+    }
+    
+    // 克隆仓库（禁用 SSL 验证以避免证书问题
+    writeLog("Cloning repository from " + repoUrl);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("GIT_SSL_NO_VERIFY", "1");
+    process.setProcessEnvironment(env);
+    process.start("git", QStringList() << "clone" << repoUrl << updateDir);
+    
+    bool finished = process.waitForFinished(180000); // 增加到3分钟，网络慢的话需要更长时间
+    
+    QString output = process.readAllStandardOutput();
+    QString error = process.readAllStandardError();
+    
+    if (!output.isEmpty()) {
+        writeLog("Clone output:\n" + output);
+    }
+    if (!error.isEmpty()) {
+        writeLog("Clone error:\n" + error);
+    }
+    
+    bool success = false;
+    
+    if (!finished) {
+        writeLog("ERROR: Clone timed out after 3 minutes!");
+        process.kill();
+    } else if (process.exitCode() != 0) {
+        writeLog("Repository clone failed with exit code: " + QString::number(process.exitCode()));
+    } else {
+        // 检查目录是否真的存在并包含文件
+        QDir checkDir(updateDir);
+        if (checkDir.exists() && checkDir.entryList(QDir::Files | QDir::NoDotAndDotDot).size() > 0) {
+            success = true;
+            writeLog("Repository cloned successfully!");
+        } else {
+            writeLog("ERROR: Clone reported success but directory is missing or empty!");
+        }
+    }
+    
+    if (success) {
+        QString msg = "Code updated successfully!\n\nLocation: " + updateDir + "\n\nPlease build and install manually.";
+        QMessageBox::information(this, "Update Complete", msg);
+        writeLog("Code update completed successfully");
+    } else {
+        writeLog("Error: " + error);
+        writeLog("Output: " + output);
+        
+        QMessageBox::warning(this, "Update Failed", 
+            "Failed to update code!\n\nPlease check the log file for details.");
+    }
+}
+
+void MainWindow::viewLogs()
+{
+    writeLog("Viewing logs");
+    
+    QString logPath = QCoreApplication::applicationDirPath() + "/A133_BASE.log";
+    QFile logFile(logPath);
+    
+    QString logContent;
+    
+    if (logFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&logFile);
+        logContent = in.readAll();
+        logFile.close();
+    } else {
+        logContent = "Log file not found: " + logPath;
+    }
+    
+    // 创建一个对话框来显示日志
+    QDialog logDialog(this);
+    logDialog.setWindowTitle("Log Viewer");
+    logDialog.resize(760, 420);
+    logDialog.setMaximumSize(780, 440);
+    
+    QVBoxLayout *layout = new QVBoxLayout(&logDialog);
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->setSpacing(10);
+    
+    QTextEdit *textEdit = new QTextEdit(&logDialog);
+    textEdit->setReadOnly(true);
+    textEdit->setPlainText(logContent);
+    QFont font = textEdit->font();
+    font.setFamily("Courier New");
+    font.setPointSize(10);
+    textEdit->setFont(font);
+    layout->addWidget(textEdit);
+    
+    QPushButton *closeBtn = new QPushButton("Close", &logDialog);
+    closeBtn->setMinimumSize(120, 40);
+    closeBtn->setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 8px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; }");
+    connect(closeBtn, &QPushButton::clicked, &logDialog, &QDialog::accept);
+    
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addStretch();
+    btnLayout->addWidget(closeBtn);
+    layout->addLayout(btnLayout);
+    
+    logDialog.exec();
 }

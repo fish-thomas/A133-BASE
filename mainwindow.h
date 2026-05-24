@@ -31,6 +31,8 @@ private slots:
     void updateTime();
     void clearLog();
     void cleanDiskSpace();
+    void updateCode();
+    void viewLogs();
     void updateSystemInfo();
 
 private:
