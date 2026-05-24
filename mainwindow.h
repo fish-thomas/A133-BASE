@@ -33,6 +33,7 @@ private slots:
     void cleanDiskSpace();
     void updateCode();
     void viewLogs();
+    void buildAndUpdateFromDir(const QString &updateDir);
     void updateSystemInfo();
 
 private:

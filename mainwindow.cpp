@@ -551,9 +551,53 @@ void MainWindow::updateCode()
     }
     
     if (success) {
-        QString msg = "Code updated successfully!\n\nLocation: " + updateDir + "\n\nPlease build and install manually.";
-        QMessageBox::information(this, "Update Complete", msg);
         writeLog("Code update completed successfully");
+        
+        // 创建自定义成功对话框
+        QDialog successDialog(this);
+        successDialog.setWindowTitle("Update Complete");
+        successDialog.resize(700, 250);
+        successDialog.setMaximumSize(780, 300);
+        
+        QVBoxLayout *dialogLayout = new QVBoxLayout(&successDialog);
+        dialogLayout->setContentsMargins(20, 20, 20, 20);
+        dialogLayout->setSpacing(20);
+        
+        QLabel *infoLabel = new QLabel("Code downloaded successfully!\n\nLocation: " + updateDir + "\n\nClick 'Run' to build and update.", &successDialog);
+        infoLabel->setWordWrap(true);
+        infoLabel->setAlignment(Qt::AlignCenter);
+        QFont labelFont = infoLabel->font();
+        labelFont.setPointSize(12);
+        infoLabel->setFont(labelFont);
+        dialogLayout->addWidget(infoLabel);
+        
+        QHBoxLayout *btnLayout = new QHBoxLayout();
+        btnLayout->setSpacing(20);
+        
+        QPushButton *okBtn = new QPushButton("OK", &successDialog);
+        okBtn->setMinimumSize(120, 50);
+        okBtn->setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 8px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; }");
+        
+        QPushButton *runBtn = new QPushButton("Run", &successDialog);
+        runBtn->setMinimumSize(120, 50);
+        runBtn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 8px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; }");
+        
+        btnLayout->addStretch();
+        btnLayout->addWidget(okBtn);
+        btnLayout->addWidget(runBtn);
+        btnLayout->addStretch();
+        dialogLayout->addLayout(btnLayout);
+        
+        // 连接按钮
+        connect(okBtn, &QPushButton::clicked, &successDialog, &QDialog::accept);
+        
+        // Run 按钮点击后关闭对话框并执行更新
+        connect(runBtn, &QPushButton::clicked, [this, &successDialog, updateDir]() {
+            successDialog.accept();
+            buildAndUpdateFromDir(updateDir);
+        });
+        
+        successDialog.exec();
     } else {
         writeLog("Error: " + error);
         writeLog("Output: " + output);
@@ -610,4 +654,129 @@ void MainWindow::viewLogs()
     layout->addLayout(btnLayout);
     
     logDialog.exec();
+}
+
+void MainWindow::buildAndUpdateFromDir(const QString &updateDir)
+{
+    writeLog("Build & Update requested");
+    
+    QString currentDir = QCoreApplication::applicationDirPath();
+    
+    // 检查更新目录是否存在
+    QDir dir(updateDir);
+    if (!dir.exists()) {
+        writeLog("ERROR: Update directory not found: " + updateDir);
+        QMessageBox::warning(this, "Update Failed", 
+            "Update directory not found!");
+        return;
+    }
+    
+    writeLog("Starting build process...");
+    
+    // 创建 build 目录
+    QString buildDir = updateDir + "/build";
+    QDir buildQDir(buildDir);
+    if (buildQDir.exists()) {
+        writeLog("Removing old build directory");
+        buildQDir.removeRecursively();
+    }
+    buildQDir.mkpath(".");
+    
+    QProcess process;
+    
+    // 1. 找到 .pro 文件（可能是 A133_BASE.pro 或 rgb_display_demo.pro）
+    QString proFile;
+    QStringList proFiles = dir.entryList(QStringList() << "*.pro", QDir::Files);
+    if (proFiles.isEmpty()) {
+        writeLog("ERROR: No .pro file found in update directory!");
+        QMessageBox::warning(this, "Build Failed", "No .pro file found!");
+        return;
+    }
+    proFile = proFiles.first();
+    writeLog("Found .pro file: " + proFile);
+    
+    // 2. 运行 qmake
+    writeLog("Running qmake...");
+    process.setWorkingDirectory(buildDir);
+    process.start("qmake", QStringList() << "../" + proFile);
+    if (!process.waitForFinished(30000)) {
+        writeLog("ERROR: qmake timed out!");
+        QMessageBox::warning(this, "Build Failed", "qmake timed out!");
+        return;
+    }
+    if (process.exitCode() != 0) {
+        writeLog("ERROR: qmake failed with exit code " + QString::number(process.exitCode()));
+        writeLog("qmake error: " + process.readAllStandardError());
+        QMessageBox::warning(this, "Build Failed", "qmake failed!\n\nCheck log for details.");
+        return;
+    }
+    writeLog("qmake completed successfully");
+    
+    // 3. 运行 make
+    writeLog("Running make...");
+    process.start("make", QStringList() << "-j2");
+    if (!process.waitForFinished(180000)) {
+        writeLog("ERROR: make timed out!");
+        QMessageBox::warning(this, "Build Failed", "make timed out!");
+        return;
+    }
+    if (process.exitCode() != 0) {
+        writeLog("ERROR: make failed with exit code " + QString::number(process.exitCode()));
+        writeLog("make error: " + process.readAllStandardError());
+        QMessageBox::warning(this, "Build Failed", "make failed!\n\nCheck log for details.");
+        return;
+    }
+    writeLog("make completed successfully");
+    
+    // 4. 检查可执行文件（可能是 A133_BASE 或 rgb_display_demo）
+    QString newBinary;
+    QStringList binaryNames;
+    binaryNames << "A133_BASE" << "rgb_display_demo";
+    
+    QDir buildDirCheck(buildDir);
+    QStringList files = buildDirCheck.entryList(QDir::Files | QDir::Executable);
+    
+    bool found = false;
+    for (const QString &binName : binaryNames) {
+        if (files.contains(binName)) {
+            newBinary = buildDir + "/" + binName;
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        writeLog("ERROR: New binary not found in build directory!");
+        QMessageBox::warning(this, "Build Failed", "New binary not found!");
+        return;
+    }
+    writeLog("Found binary: " + newBinary);
+    
+    // 5. 创建更新脚本
+    writeLog("Creating update script...");
+    QString scriptPath = updateDir + "/update_script.sh";
+    QFile scriptFile(scriptPath);
+    if (scriptFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&scriptFile);
+        out << "#!/bin/bash\n";
+        out << "sleep 2\n";
+        out << "cd \"" << currentDir << "\"\n";
+        out << "cp \"" << newBinary << "\" ./A133_BASE\n";
+        out << "chmod +x ./A133_BASE\n";
+        out << "exec ./A133_BASE\n";
+        scriptFile.close();
+        
+        // 设置执行权限
+        process.start("chmod", QStringList() << "+x" << scriptPath);
+        process.waitForFinished(5000);
+    }
+    
+    writeLog("Build completed successfully! Restarting...");
+    
+    QMessageBox::information(this, "Update Complete", 
+        "Build completed! Program will restart now.");
+    
+    // 6. 执行更新脚本并退出
+    process.startDetached(scriptPath);
+    QCoreApplication::quit();
 }
