@@ -19,6 +19,33 @@
 #include <QTextEdit>
 #include <QPushButton>
 
+// 版本信息
+const QString APP_VERSION = "1.2.0";
+
+// 更新日志
+const QString UPDATE_LOG = 
+    "v1.2.0 (2026-05-24):\n"
+    "  - 添加 Update 功能，支持从 GitHub 下载代码\n"
+    "  - 添加 Build & Update 功能，自动编译更新并重启\n"
+    "  - 添加 View Logs 按钮，方便查看日志\n"
+    "  - 添加 Clean Disk 功能，清理磁盘空间\n"
+    "  - 日志文件路径改为程序目录，文件名改为 A133_BASE.log\n"
+    "  - 主界面按钮字体放大一倍\n"
+    "  - 项目名称从 rgb_display_demo 改为 A133_BASE\n"
+    "\n"
+    "v1.1.0:\n"
+    "  - 添加 Terminal 终端功能\n"
+    "  - 添加 Reboot 重启功能\n"
+    "  - 添加系统信息显示（CPU/内存/磁盘）\n"
+    "  - 添加日志保存和 Clear Log 功能\n"
+    "  - 界面适配 800x480 分辨率\n"
+    "\n"
+    "v1.0.0:\n"
+    "  - 初始版本\n"
+    "  - WiFi 设置功能\n"
+    "  - ETH 以太网设置功能\n"
+    "  - 触摸屏虚拟键盘\n";
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , timeLabel(nullptr)
@@ -62,6 +89,16 @@ MainWindow::MainWindow(QWidget *parent)
     titleFont.setBold(true);
     timeLabel->setFont(titleFont);
     mainLayout->addWidget(timeLabel);
+
+    // 版本信息
+    QLabel *versionLabel = new QLabel("A133_BASE v" + APP_VERSION, this);
+    versionLabel->setAlignment(Qt::AlignCenter);
+    QFont versionFont = versionLabel->font();
+    versionFont.setPointSize(12);
+    versionFont.setBold(true);
+    versionLabel->setFont(versionFont);
+    versionLabel->setStyleSheet("color: #2196F3;");
+    mainLayout->addWidget(versionLabel);
 
     QHBoxLayout *buttonLayout1 = new QHBoxLayout();
     buttonLayout1->setSpacing(10);
@@ -152,6 +189,17 @@ MainWindow::MainWindow(QWidget *parent)
     sysInfoLayout->addWidget(diskLabel);
 
     mainLayout->addLayout(sysInfoLayout);
+    
+    // Update Log 按钮
+    QHBoxLayout *updateLogBtnLayout = new QHBoxLayout();
+    updateLogBtnLayout->setContentsMargins(10, 0, 10, 0);
+    QPushButton *updateLogBtn = new QPushButton("Update Log", this);
+    updateLogBtn->setMinimumSize(150, 35);
+    updateLogBtn->setStyleSheet("QPushButton { background-color: #FF9800; color: white; padding: 6px; border: none; border-radius: 6px; font-size: 14px; font-weight: bold; }");
+    connect(updateLogBtn, &QPushButton::clicked, this, &MainWindow::showUpdateLog);
+    updateLogBtnLayout->addStretch();
+    updateLogBtnLayout->addWidget(updateLogBtn);
+    mainLayout->addLayout(updateLogBtnLayout);
 
     setStyleSheet("QMainWindow { background-color: #ffffff; }");
 
@@ -779,4 +827,39 @@ void MainWindow::buildAndUpdateFromDir(const QString &updateDir)
     // 6. 执行更新脚本并退出
     process.startDetached(scriptPath);
     QCoreApplication::quit();
+}
+
+void MainWindow::showUpdateLog()
+{
+    writeLog("Showing update log");
+    
+    QDialog logDialog(this);
+    logDialog.setWindowTitle("Update Log");
+    logDialog.resize(750, 400);
+    logDialog.setMaximumSize(780, 440);
+    
+    QVBoxLayout *layout = new QVBoxLayout(&logDialog);
+    layout->setContentsMargins(15, 15, 15, 15);
+    layout->setSpacing(10);
+    
+    QTextEdit *textEdit = new QTextEdit(&logDialog);
+    textEdit->setReadOnly(true);
+    textEdit->setPlainText(UPDATE_LOG);
+    QFont font = textEdit->font();
+    font.setFamily("Courier New");
+    font.setPointSize(10);
+    textEdit->setFont(font);
+    layout->addWidget(textEdit);
+    
+    QPushButton *closeBtn = new QPushButton("Close", &logDialog);
+    closeBtn->setMinimumSize(120, 40);
+    closeBtn->setStyleSheet("QPushButton { background-color: #607D8B; color: white; padding: 8px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; }");
+    connect(closeBtn, &QPushButton::clicked, &logDialog, &QDialog::accept);
+    
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addStretch();
+    btnLayout->addWidget(closeBtn);
+    layout->addLayout(btnLayout);
+    
+    logDialog.exec();
 }

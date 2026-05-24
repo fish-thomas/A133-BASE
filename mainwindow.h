@@ -34,6 +34,7 @@ private slots:
     void updateCode();
     void viewLogs();
     void buildAndUpdateFromDir(const QString &updateDir);
+    void showUpdateLog();
     void updateSystemInfo();
 
 private:
